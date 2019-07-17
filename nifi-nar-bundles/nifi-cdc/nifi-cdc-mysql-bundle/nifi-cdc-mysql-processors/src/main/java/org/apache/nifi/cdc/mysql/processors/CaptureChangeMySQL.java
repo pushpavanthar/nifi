@@ -88,15 +88,7 @@ import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
 import java.sql.Statement;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -604,7 +596,7 @@ public class CaptureChangeMySQL extends AbstractSessionFactoryProcessor {
     }
 
     @OnShutdown
-    public void onShutdown(ProcessContext context) {
+    public void onShutdown(ProcessContext context) { // TODO this method should take zeto args. See how can we store the state before this gets killed
         try {
             // In case we get shutdown while still running, save off the current state, disconnect, and shut down gracefully
             stop(context.getStateManager());
@@ -830,7 +822,7 @@ public class CaptureChangeMySQL extends AbstractSessionFactoryProcessor {
 
                             if (includeDDLEvents && (databaseNamePattern == null || databaseNamePattern.matcher(currentDatabase).matches())) {
                                 // If we don't have table information, we can still use the database name
-                                TableInfo ddlTableInfo = (currentTable != null) ? currentTable : new TableInfo(currentDatabase, null, null, null);
+                                TableInfo ddlTableInfo = (currentTable != null) ? currentTable : new TableInfo(currentDatabase, null, null, null, null);
                                 DDLEventInfo ddlEvent = new DDLEventInfo(ddlTableInfo, timestamp, currentBinlogFile, currentBinlogPosition, sql);
                                 currentSequenceId.set(ddlEventWriter.writeEvent(currentSession, transitUri, ddlEvent, currentSequenceId.get(), REL_SUCCESS));
                             }
@@ -1018,7 +1010,15 @@ public class CaptureChangeMySQL extends AbstractSessionFactoryProcessor {
                     columnDefinitions.add(new ColumnDefinition(rsmd.getColumnType(i), columnLabel != null ? columnLabel : rsmd.getColumnName(i)));
                 }
 
-                tableInfo = new TableInfo(key.getDatabaseName(), key.getTableName(), key.getTableId(), columnDefinitions);
+		            s.execute("USE `" + key.getDatabaseName() + "`");
+                //SHOW KEYS FROM table WHERE Key_name = 'PRIMARY'
+                rs = s.executeQuery("SHOW KEYS FROM `" + key.getTableName() + "` WHERE Key_name = 'PRIMARY'");
+
+		            List<ColumnDefinition> primaryKeyList = new LinkedList<>();
+                while (rs.next()){
+                    primaryKeyList.add(new ColumnDefinition(-4, rs.getObject("Column_name").toString()));
+                }
+                tableInfo = new TableInfo(key.getDatabaseName(), key.getTableName(), key.getTableId(), columnDefinitions, primaryKeyList);
             }
         }
 

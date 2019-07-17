@@ -53,6 +53,7 @@ public class DeleteRowsWriter extends AbstractBinlogTableEventWriter<DeleteRowsE
                 super.writeJson(eventInfo);
 
                 final BitSet bitSet = eventInfo.getIncludedColumns();
+                super.writeMetaData(eventInfo, row, bitSet);
                 writeRow(eventInfo, row, bitSet);
 
                 super.endJson();

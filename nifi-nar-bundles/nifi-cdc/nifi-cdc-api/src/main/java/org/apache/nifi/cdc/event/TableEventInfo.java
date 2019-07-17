@@ -26,6 +26,7 @@ public interface TableEventInfo extends EventInfo {
     String getDatabaseName();
     String getTableName();
     Long getTableId();
+    List<ColumnDefinition> getPrimaryKeyColList();
     List<ColumnDefinition> getColumns();
     ColumnDefinition getColumnByIndex(int i);
 }

@@ -23,6 +23,7 @@ import org.apache.nifi.distributed.cache.client.exception.SerializationException
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.ArrayList;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -32,17 +33,20 @@ import java.util.stream.Collectors;
 public class TableInfo {
 
     final static String DB_TABLE_NAME_DELIMITER = "@!@";
+    final static String TABLE_PK_COLUMN_DELIMITER = "#!#";
 
     private String databaseName;
     private String tableName;
     private Long tableId;
     private List<ColumnDefinition> columns;
+    private List<ColumnDefinition> pkList;
 
-    public TableInfo(String databaseName, String tableName, Long tableId, List<ColumnDefinition> columns) {
+    public TableInfo(String databaseName, String tableName, Long tableId, List<ColumnDefinition> columns, List<ColumnDefinition> pkList) {
         this.databaseName = databaseName;
         this.tableName = tableName;
         this.tableId = tableId;
         this.columns = columns;
+        this.pkList = pkList;
     }
 
     public String getDatabaseName() {
@@ -69,6 +73,12 @@ public class TableInfo {
         this.columns = columns;
     }
 
+    public List<ColumnDefinition> getPkList() { return  pkList;}
+
+    public void  setPkList(List<ColumnDefinition> pkColumns) {
+        this.pkList = pkColumns;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -80,6 +90,7 @@ public class TableInfo {
                 .append(databaseName, that.databaseName)
                 .append(tableName, that.tableName)
                 .append(tableId, that.tableId)
+                .append(pkList, that.pkList)
                 .append(columns, that.columns)
                 .isEquals();
     }
@@ -89,6 +100,7 @@ public class TableInfo {
         int result = databaseName.hashCode();
         result = 31 * result + tableName.hashCode();
         result = 31 * result + tableId.hashCode();
+        result = 31 * result + (pkList != null ? pkList.hashCode() : 0);
         result = 31 * result + (columns != null ? columns.hashCode() : 0);
         return result;
     }
@@ -102,6 +114,11 @@ public class TableInfo {
             sb.append(value.getTableName());
             sb.append(DB_TABLE_NAME_DELIMITER);
             sb.append(value.getTableId());
+            List<ColumnDefinition> primaryColumns = value.getPkList();
+            if (primaryColumns != null && !primaryColumns.isEmpty()) {
+                sb.append(DB_TABLE_NAME_DELIMITER);
+                sb.append(primaryColumns.stream().map(ColumnDefinition::getName).collect(Collectors.joining(TABLE_PK_COLUMN_DELIMITER)));
+            }
             List<ColumnDefinition> columnDefinitions = value.getColumns();
             if (columnDefinitions != null && !columnDefinitions.isEmpty()) {
                 sb.append(DB_TABLE_NAME_DELIMITER);
@@ -133,23 +150,32 @@ public class TableInfo {
             } catch (NumberFormatException nfe) {
                 throw new IOException("Illegal table ID: " + tokens[2]);
             }
+
+            String primaryKeysString = tokens[3];
+            String[] primaryKeyList = primaryKeysString.split(TABLE_PK_COLUMN_DELIMITER);
+            // Parse Primary Key column names and types
+            List<ColumnDefinition> primaryKeyColumns = new LinkedList<>();
+            for (int i = 0; i < primaryKeyList.length - 1; i += 1) {
+                primaryKeyColumns.add(new ColumnDefinition(-4, primaryKeyList[i]));
+            }
+
             // Parse column names and types
             List<ColumnDefinition> columnDefinitions = new ArrayList<>();
-            for (int i = 0; i < numTokens - 3; i += 2) {
+            for (int i = 0; i < numTokens - 4; i += 2) {
                 try {
-                    int columnTypeIndex = i + 4;
-                    int columnNameIndex = i + 3;
+                    int columnTypeIndex = i + 5;
+                    int columnNameIndex = i + 4;
                     if (columnTypeIndex < numTokens) {
                         columnDefinitions.add(new ColumnDefinition(Integer.parseInt(tokens[columnTypeIndex]), tokens[columnNameIndex]));
                     } else {
                         throw new IOException("No type detected for column: " + tokens[columnNameIndex]);
                     }
                 } catch (NumberFormatException nfe) {
-                    throw new IOException("Illegal column type value for column " + (i / 2 + 1) + ": " + tokens[i + 4]);
+                    throw new IOException("Illegal column type value for column " + (i / 2 + 1) + ": " + tokens[i + 5]);
                 }
             }
 
-            return new TableInfo(dbName, tableName, tableId, columnDefinitions);
+            return new TableInfo(dbName, tableName, tableId, columnDefinitions, primaryKeyColumns);
         }
     }
 }

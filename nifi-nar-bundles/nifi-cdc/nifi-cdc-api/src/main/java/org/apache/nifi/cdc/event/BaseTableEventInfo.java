@@ -17,6 +17,7 @@
 package org.apache.nifi.cdc.event;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * An abstract base class for all MySQL binlog events affecting a table.
@@ -26,6 +27,7 @@ public class BaseTableEventInfo extends BaseEventInfo implements TableEventInfo 
     private String databaseName;
     private String tableName;
     private Long tableId;
+    private List<ColumnDefinition> primaryKeyColumns;
 
     private List<ColumnDefinition> columns;
 
@@ -35,6 +37,7 @@ public class BaseTableEventInfo extends BaseEventInfo implements TableEventInfo 
             this.databaseName = tableInfo.getDatabaseName();
             this.tableName = tableInfo.getTableName();
             this.tableId = tableInfo.getTableId();
+            this.primaryKeyColumns = tableInfo.getPkList();
             this.columns = tableInfo.getColumns();
         }
     }
@@ -49,6 +52,10 @@ public class BaseTableEventInfo extends BaseEventInfo implements TableEventInfo 
 
     public Long getTableId() {
         return tableId;
+    }
+
+    public List<ColumnDefinition> getPrimaryKeyColList() {
+        return primaryKeyColumns;
     }
 
     public List<ColumnDefinition> getColumns() {

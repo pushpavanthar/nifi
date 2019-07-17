@@ -16,12 +16,20 @@
  */
 package org.apache.nifi.cdc.mysql.event.io;
 
+import org.apache.nifi.cdc.event.ColumnDefinition;
+import org.apache.nifi.cdc.mysql.event.UpdateRowsEventInfo;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.cdc.mysql.event.BinlogTableEventInfo;
 
 import java.io.IOException;
+import java.io.Serializable;
+import java.util.BitSet;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * An abstract base class for writing MYSQL table-related binlog events into flow file(s), e.g.
@@ -62,4 +70,28 @@ public abstract class AbstractBinlogTableEventWriter<T extends BinlogTableEventI
         session.getProvenanceReporter().receive(flowFile, transitUri);
         return currentSequenceId + 1;
     }
+
+
+		protected void writeMetaData(T event, Serializable[] row, BitSet includedColumns) throws IOException {
+				int i = includedColumns.nextSetBit(0);
+				List<ColumnDefinition> pkList = event.getPrimaryKeyColList();
+				Map<String, Serializable> columnValueMap = new HashMap<>();
+				while (i != -1) {
+						ColumnDefinition columnDefinition = event.getColumnByIndex(i);
+						columnValueMap.putIfAbsent(columnDefinition.getName(), row[i]);
+						i = includedColumns.nextSetBit(i + 1);
+				}
+				String primaryKey = pkList.stream().map(col -> {
+						String pkValue = "";
+						if(columnValueMap.containsKey(col.getName())){
+								Serializable colValue = columnValueMap.get(col.getName());
+								if (colValue instanceof byte[]) {
+										pkValue = new String((byte[]) colValue);
+								} else {
+										pkValue = colValue.toString();
+								}
+						}
+						return pkValue;}).collect(Collectors.joining("_"));
+				jsonGenerator.writeStringField("primary_key", primaryKey);
+		}
 }

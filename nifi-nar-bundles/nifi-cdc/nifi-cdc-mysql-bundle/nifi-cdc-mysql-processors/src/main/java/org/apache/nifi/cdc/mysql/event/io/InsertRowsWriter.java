@@ -53,6 +53,7 @@ public class InsertRowsWriter extends AbstractBinlogTableEventWriter<InsertRowsE
                 super.writeJson(eventInfo);
 
                 final BitSet bitSet = eventInfo.getIncludedColumns();
+		            super.writeMetaData(eventInfo, row, bitSet);
                 writeRow(eventInfo, row, bitSet);
 
                 super.endJson();

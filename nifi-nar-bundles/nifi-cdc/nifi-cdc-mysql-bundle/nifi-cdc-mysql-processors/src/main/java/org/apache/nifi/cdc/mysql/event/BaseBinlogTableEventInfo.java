@@ -21,6 +21,7 @@ import org.apache.nifi.cdc.event.ColumnDefinition;
 import org.apache.nifi.cdc.event.TableEventInfo;
 import org.apache.nifi.cdc.event.TableInfo;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -43,6 +44,11 @@ public class BaseBinlogTableEventInfo extends BaseBinlogEventInfo implements Bin
     @Override
     public String getTableName() {
         return delegate.getTableName();
+    }
+
+    @Override
+    public List<ColumnDefinition> getPrimaryKeyColList() {
+        return delegate.getPrimaryKeyColList();
     }
 
     @Override

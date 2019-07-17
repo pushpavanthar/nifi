@@ -165,6 +165,12 @@ class CaptureChangeMySQLTest {
         testRunner.setProperty(CaptureChangeMySQL.CONNECT_TIMEOUT, '2 seconds')
         testRunner.setProperty(CaptureChangeMySQL.INCLUDE_BEGIN_COMMIT, 'false')
         testRunner.setProperty(CaptureChangeMySQL.INIT_SEQUENCE_ID, '10')
+        final DistributedMapCacheClientImpl cacheClient = createCacheClient()
+        def clientProperties = [:]
+        clientProperties.put(DistributedMapCacheClientService.HOSTNAME.getName(), 'localhost')
+        testRunner.addControllerService('client', cacheClient, clientProperties)
+        testRunner.setProperty(CaptureChangeMySQL.DIST_CACHE_CLIENT, 'client')
+        testRunner.enableControllerService(cacheClient)
 
         testRunner.run(1, false, true)
 
@@ -186,6 +192,7 @@ class CaptureChangeMySQLTest {
         ))
 
         def cols = new BitSet()
+        cols.set(0)
         cols.set(1)
         client.sendEvent(new Event(
                 [timestamp: new Date().time, eventType: EventType.EXT_WRITE_ROWS, nextPosition: 8] as EventHeaderV4,
@@ -344,6 +351,7 @@ class CaptureChangeMySQLTest {
         ))
 
         def cols = new BitSet()
+        cols.set(0)
         cols.set(1)
         client.sendEvent(new Event(
                 [timestamp: new Date().time, eventType: EventType.EXT_WRITE_ROWS, nextPosition: 8] as EventHeaderV4,
@@ -496,6 +504,7 @@ class CaptureChangeMySQLTest {
         ))
 
         def cols = new BitSet()
+        cols.set(0)
         cols.set(1)
         client.sendEvent(new Event(
                 [timestamp: new Date().time, eventType: EventType.EXT_WRITE_ROWS, nextPosition: 8] as EventHeaderV4,
@@ -584,6 +593,12 @@ class CaptureChangeMySQLTest {
         testRunner.setProperty(CaptureChangeMySQL.DATABASE_NAME_PATTERN, "myDB")
         testRunner.setProperty(CaptureChangeMySQL.TABLE_NAME_PATTERN, "user")
         testRunner.setProperty(CaptureChangeMySQL.INCLUDE_BEGIN_COMMIT, 'true')
+        final DistributedMapCacheClientImpl cacheClient = createCacheClient()
+        def clientProperties = [:]
+        clientProperties.put(DistributedMapCacheClientService.HOSTNAME.getName(), 'localhost')
+        testRunner.addControllerService('client', cacheClient, clientProperties)
+        testRunner.setProperty(CaptureChangeMySQL.DIST_CACHE_CLIENT, 'client')
+        testRunner.enableControllerService(cacheClient)
 
         testRunner.run(1, false, true)
 
@@ -607,6 +622,7 @@ class CaptureChangeMySQLTest {
 
         // This WRITE ROWS should be skipped
         def cols = new BitSet()
+        cols.set(0)
         cols.set(1)
         client.sendEvent(new Event(
                 [timestamp: new Date().time, eventType: EventType.EXT_WRITE_ROWS, nextPosition: 8] as EventHeaderV4,
@@ -622,6 +638,7 @@ class CaptureChangeMySQLTest {
 
         // WRITE ROWS for matching table
         cols = new BitSet()
+        cols.set(0)
         cols.set(1)
         client.sendEvent(new Event(
                 [timestamp: new Date().time, eventType: EventType.EXT_WRITE_ROWS, nextPosition: 12] as EventHeaderV4,
@@ -653,6 +670,7 @@ class CaptureChangeMySQLTest {
 
         // This WRITE ROWS should be skipped
         cols = new BitSet()
+        cols.set(0)
         cols.set(1)
         client.sendEvent(new Event(
                 [timestamp: new Date().time, eventType: EventType.EXT_WRITE_ROWS, nextPosition: 8] as EventHeaderV4,
@@ -751,6 +769,12 @@ class CaptureChangeMySQLTest {
         testRunner.setProperty(CaptureChangeMySQL.PASSWORD, 'password')
         testRunner.setProperty(CaptureChangeMySQL.CONNECT_TIMEOUT, '2 seconds')
         testRunner.setProperty(CaptureChangeMySQL.INCLUDE_BEGIN_COMMIT, 'true')
+        final DistributedMapCacheClientImpl cacheClient = createCacheClient()
+        def clientProperties = [:]
+        clientProperties.put(DistributedMapCacheClientService.HOSTNAME.getName(), 'localhost')
+        testRunner.addControllerService('client', cacheClient, clientProperties)
+        testRunner.setProperty(CaptureChangeMySQL.DIST_CACHE_CLIENT, 'client')
+        testRunner.enableControllerService(cacheClient)
 
         testRunner.run(1, false, true)
 
@@ -783,6 +807,7 @@ class CaptureChangeMySQLTest {
 
         // This WRITE ROWS should be skipped
         def cols = new BitSet()
+        cols.set(0)
         cols.set(1)
         client.sendEvent(new Event(
                 [timestamp: new Date().time, eventType: EventType.EXT_WRITE_ROWS, nextPosition: 8] as EventHeaderV4,
@@ -868,6 +893,65 @@ class CaptureChangeMySQLTest {
         testRunner.stateManager.assertStateEquals(BinlogEventInfo.BINLOG_POSITION_KEY, '12', Scope.CLUSTER)
 
     }
+
+//    @Before
+//    void setUpForMethod() throws Exception {
+//        processor = new MockCaptureChangeMySQL()
+//        processor = new CaptureChangeMySQL()
+//        testRunner = TestRunners.newTestRunner(processor)
+////        client = new MockBinlogClient('localhost', 3306, 'root', 'password')
+//    }
+//
+//    @Test
+//    void testDatabaseConnection() throws Exception {
+//        testRunner.setProperty(CaptureChangeMySQL.DRIVER_LOCATION, '/Users/purushotham/repo/personal/nifi/nifi-nar-bundles/nifi-cdc/nifi-cdc-mysql-bundle/nifi-cdc-mysql-processors/src/test/resources/mysql-connector-java-8.0.15.jar')
+//        testRunner.setProperty(CaptureChangeMySQL.HOSTS, 'cdc-test-db-replica-1.c69vlelecffg.ap-south-1.rds.amazonaws.com:3306')
+//        testRunner.setProperty(CaptureChangeMySQL.USERNAME, 'cdcuser')
+//        testRunner.setProperty(CaptureChangeMySQL.PASSWORD, 'Cdc12345678')
+//        testRunner.setProperty(CaptureChangeMySQL.CONNECT_TIMEOUT, '30 seconds')
+//        testRunner.setProperty(CaptureChangeMySQL.INCLUDE_DDL_EVENTS, 'true')
+//        testRunner.setProperty(CaptureChangeMySQL.RETRIEVE_ALL_RECORDS, 'true')
+//        testRunner.setProperty(CaptureChangeMySQL.STATE_UPDATE_INTERVAL, "10 secs")
+//        testRunner.setProperty(CaptureChangeMySQL.DRIVER_NAME, "com.mysql.jdbc.Driver")
+//        final DistributedMapCacheClientImpl cacheClient = createCacheClient()
+//        def clientProperties = [:]
+//        clientProperties.put(DistributedMapCacheClientService.HOSTNAME.getName(), 'localhost')
+//        testRunner.addControllerService('client', cacheClient, clientProperties)
+//        testRunner.setProperty(CaptureChangeMySQL.DIST_CACHE_CLIENT, 'client')
+//        testRunner.enableControllerService(cacheClient)
+//
+//        testRunner.run(1, false, true)
+//
+//        testRunner.run(1, false, false)
+//        testRunner.assertTransferCount(CaptureChangeMySQL.REL_SUCCESS, 1)
+//    }
+
+
+//    @Test
+//    void testDatabaseDisconnection() throws Exception {
+//        testRunner.setProperty(CaptureChangeMySQL.DRIVER_LOCATION, '/Users/purushotham/repo/personal/nifi/nifi-nar-bundles/nifi-cdc/nifi-cdc-mysql-bundle/nifi-cdc-mysql-processors/src/test/resources/mysql-connector-java-8.0.15.jar')
+//        testRunner.setProperty(CaptureChangeMySQL.HOSTS, 'cdc-test-db-replica-1.c69vlelecffg.ap-south-1.rds.amazonaws.com:3306')
+//        testRunner.setProperty(CaptureChangeMySQL.USERNAME, 'cdcuser')
+//        testRunner.setProperty(CaptureChangeMySQL.PASSWORD, 'Cdc12345678')
+//        testRunner.setProperty(CaptureChangeMySQL.CONNECT_TIMEOUT, '30 seconds')
+//        testRunner.setProperty(CaptureChangeMySQL.INCLUDE_DDL_EVENTS, 'true')
+//        testRunner.setProperty(CaptureChangeMySQL.RETRIEVE_ALL_RECORDS, 'true')
+//        testRunner.setProperty(CaptureChangeMySQL.STATE_UPDATE_INTERVAL, "10 secs")
+//        testRunner.setProperty(CaptureChangeMySQL.DRIVER_NAME, "com.mysql.jdbc.Driver")
+//        final DistributedMapCacheClientImpl cacheClient = createCacheClient()
+//        def clientProperties = [:]
+//        clientProperties.put(DistributedMapCacheClientService.HOSTNAME.getName(), 'localhost')
+//        testRunner.addControllerService('client', cacheClient, clientProperties)
+//        testRunner.setProperty(CaptureChangeMySQL.DIST_CACHE_CLIENT, 'client')
+//        testRunner.enableControllerService(cacheClient)
+//
+//        testRunner.run(1, false, true)
+//        testRunner.shutdown() // Doesn't work. Fix the @OnShutdown method to resolve.
+//
+//    }
+
+
+
 
     @Test
     void testDDLOutsideTransaction() throws Exception {
@@ -956,7 +1040,10 @@ class CaptureChangeMySQLTest {
                 tableInfo = new TableInfo(key.databaseName, key.tableName, key.tableId,
                         [new ColumnDefinition((byte) 4, 'id'),
                          new ColumnDefinition((byte) -4, 'string1')
-                        ] as List<ColumnDefinition>)
+                        ] as List<ColumnDefinition>,
+                        [new ColumnDefinition((byte) -4, 'id')
+                        ] as List<ColumnDefinition>
+                )
                 cache.put(key, tableInfo)
             }
             return tableInfo

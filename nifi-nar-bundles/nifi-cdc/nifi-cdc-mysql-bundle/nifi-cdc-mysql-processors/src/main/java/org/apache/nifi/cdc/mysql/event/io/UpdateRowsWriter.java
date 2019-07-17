@@ -16,11 +16,11 @@
  */
 package org.apache.nifi.cdc.mysql.event.io;
 
+import org.apache.nifi.cdc.event.ColumnDefinition;
 import org.apache.nifi.cdc.mysql.event.MySQLCDCUtils;
+import org.apache.nifi.cdc.mysql.event.UpdateRowsEventInfo;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.processor.ProcessSession;
-import org.apache.nifi.cdc.event.ColumnDefinition;
-import org.apache.nifi.cdc.mysql.event.UpdateRowsEventInfo;
 import org.apache.nifi.processor.Relationship;
 
 import java.io.IOException;
@@ -54,6 +54,7 @@ public class UpdateRowsWriter extends AbstractBinlogTableEventWriter<UpdateRowsE
                 super.writeJson(eventInfo);
 
                 final BitSet bitSet = eventInfo.getIncludedColumns();
+		            super.writeMetaData(eventInfo, row.getValue(), bitSet);
                 writeRow(eventInfo, row, bitSet);
 
                 super.endJson();
