@@ -25,6 +25,7 @@ import org.apache.nifi.controller.ScheduledState;
 import org.apache.nifi.controller.repository.claim.ContentDirection;
 import org.apache.nifi.controller.service.ControllerServiceState;
 import org.apache.nifi.groups.ProcessGroup;
+import org.apache.nifi.parameter.ParameterContext;
 import org.apache.nifi.registry.flow.ExternalControllerServiceReference;
 import org.apache.nifi.registry.flow.VersionedFlow;
 import org.apache.nifi.registry.flow.VersionedFlowSnapshot;
@@ -84,7 +85,9 @@ import org.apache.nifi.web.api.entity.ActivateControllerServicesEntity;
 import org.apache.nifi.web.api.entity.AffectedComponentEntity;
 import org.apache.nifi.web.api.entity.BucketEntity;
 import org.apache.nifi.web.api.entity.BulletinEntity;
+import org.apache.nifi.web.api.entity.ComponentValidationResultEntity;
 import org.apache.nifi.web.api.entity.ConnectionEntity;
+import org.apache.nifi.web.api.entity.ConnectionStatisticsEntity;
 import org.apache.nifi.web.api.entity.ConnectionStatusEntity;
 import org.apache.nifi.web.api.entity.ControllerBulletinsEntity;
 import org.apache.nifi.web.api.entity.ControllerConfigurationEntity;
@@ -96,7 +99,6 @@ import org.apache.nifi.web.api.entity.FlowConfigurationEntity;
 import org.apache.nifi.web.api.entity.FlowEntity;
 import org.apache.nifi.web.api.entity.FunnelEntity;
 import org.apache.nifi.web.api.entity.LabelEntity;
-import org.apache.nifi.web.api.entity.ComponentValidationResultEntity;
 import org.apache.nifi.web.api.entity.ParameterContextEntity;
 import org.apache.nifi.web.api.entity.PortEntity;
 import org.apache.nifi.web.api.entity.PortStatusEntity;
@@ -132,6 +134,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 /**
  * Defines the NiFiServiceFacade interface.
@@ -660,6 +663,14 @@ public interface NiFiServiceFacade {
     StatusHistoryEntity getConnectionStatusHistory(String connectionId);
 
     /**
+     * Gets analytical statistics for the specified connection.
+     *
+     * @param connectionId connection
+     * @return statistics
+     */
+    ConnectionStatisticsEntity getConnectionStatistics(String connectionId);
+
+    /**
      * Creates a new Relationship target.
      *
      * @param revision revision
@@ -1045,6 +1056,15 @@ public interface NiFiServiceFacade {
      * @return the Set of all Parameter Context Entities for the current user
      */
     Set<ParameterContextEntity> getParameterContexts();
+
+    /**
+     * Returns the Parameter Context with the given name
+     * @param parameterContextName the name of the Parameter Context
+     * @return the Parameter Context with the given name, or <code>null</code> if no Parameter Context exists with that name
+     *
+     * @throws org.apache.nifi.authorization.AccessDeniedException if a Parameter Context exists with the given name but the user does not have READ permissions to it
+     */
+    ParameterContext getParameterContextByName(String parameterContextName, NiFiUser user);
 
     /**
      * Returns the ParameterContextEntity for the ParameterContext with the given ID
@@ -1547,10 +1567,11 @@ public interface NiFiServiceFacade {
      * @param updateSettings whether or not the process group's name and position should be updated
      * @param updateDescendantVersionedFlows if a child/descendant Process Group is under Version Control, specifies whether or not to
      *            update the contents of that Process Group
+     * @param  idGenerator the id generator
      * @return the Process Group
      */
     ProcessGroupEntity updateProcessGroupContents(Revision revision, String groupId, VersionControlInformationDTO versionControlInfo, VersionedFlowSnapshot snapshot,
-                                                  String componentIdSeed, boolean verifyNotModified, boolean updateSettings, boolean updateDescendantVersionedFlows);
+                                                  String componentIdSeed, boolean verifyNotModified, boolean updateSettings, boolean updateDescendantVersionedFlows, Supplier<String> idGenerator);
 
 
     /**
@@ -1560,6 +1581,13 @@ public interface NiFiServiceFacade {
      * @return a Set representing all components that will be affected by the update
      */
     Set<AffectedComponentEntity> getComponentsAffectedByParameterContextUpdate(ParameterContextDTO parameterContextDto);
+
+    /**
+     * Returns an up-to-date representation of the component that is referenced by the given affected component
+     * @param affectedComponent the affected component
+     * @return an up-to-date representation of the affected component
+     */
+    AffectedComponentEntity getUpdatedAffectedComponentEntity(AffectedComponentEntity affectedComponent);
 
     /**
      * Returns a Set representing all Processors that reference any Parameters and that belong to the group with the given ID
@@ -1646,6 +1674,14 @@ public interface NiFiServiceFacade {
      * @param reportingTaskId the reporting task id
      */
     void clearReportingTaskState(String reportingTaskId);
+
+    /**
+     * Gets the state for the specified RemoteProcessGroup.
+     *
+     * @param remoteProcessGroupId the RemoteProcessGroup id
+     * @return  the component state
+     */
+    ComponentStateDTO getRemoteProcessGroupState(String remoteProcessGroupId);
 
 
     // ----------------------------------------

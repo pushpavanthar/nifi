@@ -37,10 +37,10 @@ import org.apache.nifi.web.api.entity.ParameterEntity;
 import org.apache.nifi.web.dao.ParameterContextDAO;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 public class StandardParameterContextDAO implements ParameterContextDAO {
     private FlowManager flowManager;
@@ -57,7 +57,7 @@ public class StandardParameterContextDAO implements ParameterContextDAO {
 
     @Override
     public ParameterContext createParameterContext(final ParameterContextDTO parameterContextDto) {
-        final Set<Parameter> parameters = getParameters(parameterContextDto);
+        final Map<String, Parameter> parameters = getParameters(parameterContextDto);
         final ParameterContext parameterContext = flowManager.createParameterContext(parameterContextDto.getId(), parameterContextDto.getName(), parameters);
         if (parameterContextDto.getDescription() != null) {
             parameterContext.setDescription(parameterContextDto.getDescription());
@@ -65,16 +65,30 @@ public class StandardParameterContextDAO implements ParameterContextDAO {
         return parameterContext;
     }
 
-    private Set<Parameter> getParameters(final ParameterContextDTO parameterContextDto) {
-        final Set<ParameterEntity> parameterDtos = parameterContextDto.getParameters();
-        if (parameterDtos == null) {
-            return Collections.emptySet();
+    private Map<String, Parameter> getParameters(final ParameterContextDTO parameterContextDto) {
+        final Set<ParameterEntity> parameterEntities = parameterContextDto.getParameters();
+        if (parameterEntities == null) {
+            return Collections.emptyMap();
         }
 
-        return parameterContextDto.getParameters().stream()
-            .map(ParameterEntity::getParameter)
-            .map(this::createParameter)
-            .collect(Collectors.toSet());
+        final Map<String, Parameter> parameterMap = new HashMap<>();
+        for (final ParameterEntity parameterEntity : parameterEntities) {
+            final ParameterDTO parameterDto = parameterEntity.getParameter();
+
+            if (parameterDto.getName() == null) {
+                throw new IllegalArgumentException("Cannot specify a Parameter without a name");
+            }
+
+            final boolean deletion = parameterDto.getDescription() == null && parameterDto.getSensitive() == null && parameterDto.getValue() == null;
+            if (deletion) {
+                parameterMap.put(parameterDto.getName().trim(), null);
+            } else {
+                final Parameter parameter = createParameter(parameterDto);
+                parameterMap.put(parameterDto.getName().trim(), parameter);
+            }
+        }
+
+        return parameterMap;
     }
 
     private Parameter createParameter(final ParameterDTO dto) {
@@ -118,7 +132,7 @@ public class StandardParameterContextDAO implements ParameterContextDAO {
         }
 
         if (parameterContextDto.getParameters() != null) {
-            final Set<Parameter> parameters = getParameters(parameterContextDto);
+            final Map<String, Parameter> parameters = getParameters(parameterContextDto);
             context.setParameters(parameters);
         }
 
@@ -136,21 +150,27 @@ public class StandardParameterContextDAO implements ParameterContextDAO {
             final ParameterReferenceManager referenceManager = currentContext.getParameterReferenceManager();
 
             for (final ProcessorNode processor : referenceManager.getProcessorsReferencing(currentContext, parameterName)) {
-                verifyParameterUpdate(parameterName, processor, parameterDto.getSensitive(), currentContext.getName(), verifyComponentStates, processor.isRunning(), "Processor that is running");
+                verifyParameterUpdate(parameterDto, processor, currentContext.getName(), verifyComponentStates, processor.isRunning(), "Processor that is running");
             }
 
             for (final ControllerServiceNode serviceNode : referenceManager.getControllerServicesReferencing(currentContext, parameterName)) {
-                verifyParameterUpdate(parameterName, serviceNode, parameterDto.getSensitive(), currentContext.getName(), verifyComponentStates,
+                verifyParameterUpdate(parameterDto, serviceNode, currentContext.getName(), verifyComponentStates,
                     serviceNode.getState() != ControllerServiceState.DISABLED, "Controller Service that is enabled");
             }
         }
     }
 
-    private void verifyParameterUpdate(final String parameterName, final ComponentNode component, final Boolean parameterSensitive, final String contextName,
+    private void verifyParameterUpdate(final ParameterDTO parameterDto, final ComponentNode component, final String contextName,
                                             final boolean verifyComponentStates, final boolean active, final String activeExplanation) {
+
+        final String parameterName = parameterDto.getName();
+        final Boolean parameterSensitive = parameterDto.getSensitive();
+        final boolean parameterDeletion = parameterDto.getDescription() == null && parameterDto.getSensitive() == null && parameterDto.getValue() == null;
+
         // For any parameter that is added or modified, we need to ensure that the new configuration will not result in a Sensitive Parameter being referenced by a non-Sensitive Property
         // or a Non-Sensitive Parameter being referenced by a Sensitive Property.
-        // Additionally, if 'verifyComponentStates', we must ensure that any component that references a value that is to be updated is stopped (if a processor) or disabled (if a controller service)
+        // Additionally, if 'verifyComponentStates' or parameter is being deleted, we must ensure that any component that references a value that is to be updated
+        // is stopped (if a processor) or disabled (if a controller service).
         for (final Map.Entry<PropertyDescriptor, PropertyConfiguration> entry : component.getProperties().entrySet()) {
             final PropertyConfiguration configuration = entry.getValue();
             if (configuration == null) {
@@ -160,17 +180,17 @@ public class StandardParameterContextDAO implements ParameterContextDAO {
             for (final ParameterReference reference : configuration.getParameterReferences()) {
                 final String referencedParameterName = reference.getParameterName();
                 if (referencedParameterName.equals(parameterName)) {
-                    if (entry.getKey().isSensitive() && !Boolean.TRUE.equals(parameterSensitive)) {
+                    if (entry.getKey().isSensitive() && !parameterDeletion && !Boolean.TRUE.equals(parameterSensitive)) {
                         throw new IllegalStateException("Cannot update Parameter Context " + contextName + " because the update would add a Non-Sensitive Parameter " +
                             "named '" + parameterName + "' but this Parameter already is referenced by a Sensitive Property.");
                     }
 
-                    if (!entry.getKey().isSensitive() && Boolean.TRUE.equals(parameterSensitive)) {
+                    if (!entry.getKey().isSensitive() && !parameterDeletion && Boolean.TRUE.equals(parameterSensitive)) {
                         throw new IllegalStateException("Cannot update Parameter Context " + contextName + " because the update would add a Sensitive Parameter named " +
                             "'" + parameterName + "' but this Parameter already is referenced by a Non-Sensitive Property.");
                     }
 
-                    if (verifyComponentStates && active) {
+                    if (active && (verifyComponentStates || parameterDeletion)) {
                         throw new IllegalStateException("Cannot update Parameter Context " + contextName + " because it has Parameters that are being referenced by a " +
                             activeExplanation + ".");
                     }

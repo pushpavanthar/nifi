@@ -23,22 +23,25 @@
         define(['jquery',
                 'd3',
                 'nf.Storage',
-                'lodash-core'],
-            function ($, d3, nfStorage, _) {
-                return (nf.Common = factory($, d3, nfStorage, _));
+                'lodash-core',
+                'moment'],
+            function ($, d3, nfStorage, _, moment) {
+                return (nf.Common = factory($, d3, nfStorage, _, moment));
             });
     } else if (typeof exports === 'object' && typeof module === 'object') {
         module.exports = (nf.Common = factory(require('jquery'),
             require('d3'),
             require('nf.Storage'),
-            require('lodash-core')));
+            require('lodash-core'),
+            require('moment')));
     } else {
         nf.Common = factory(root.$,
             root.d3,
             root.nf.Storage,
-            root._);
+            root._,
+            root.moment);
     }
-}(this, function ($, d3, nfStorage, _) {
+}(this, function ($, d3, nfStorage, _, moment) {
     'use strict';
 
     $(document).ready(function () {
@@ -59,13 +62,17 @@
         // setup custom checkbox
         $(document).on('click', 'div.nf-checkbox', function () {
             var checkbox = $(this);
-            if (checkbox.hasClass('checkbox-unchecked')) {
+            var transitionToChecked = checkbox.hasClass('checkbox-unchecked');
+
+            if (transitionToChecked) {
                 checkbox.removeClass('checkbox-unchecked').addClass('checkbox-checked');
             } else {
                 checkbox.removeClass('checkbox-checked').addClass('checkbox-unchecked');
             }
             // emit a state change event
-            checkbox.trigger('change');
+            checkbox.trigger('change', {
+                isChecked: transitionToChecked
+            });
         });
 
         // setup click areas for custom checkboxes
@@ -115,7 +122,11 @@
     }, {
         text: 'access the controller',
         value: 'controller',
-        description: 'Allows users to view/modify the controller including Reporting Tasks, Controller Services, and Nodes in the Cluster'
+        description: 'Allows users to view/modify the controller including Reporting Tasks, Controller Services, Parameter Contexts, and Nodes in the Cluster'
+    }, {
+        text: 'access parameter contexts',
+        value: 'parameter-contexts',
+        description: 'Allows users to view/modify Parameter Contexts'
     }, {
         text: 'query provenance',
         value: 'provenance',
@@ -709,6 +720,19 @@
         },
 
         /**
+         * Determines whether the current user can modify parameter contexts.
+         *
+         * @returns {boolean}
+         */
+        canModifyParameterContexts: function () {
+            if (nfCommon.isDefinedAndNotNull(nfCommon.currentUser)) {
+                return nfCommon.currentUser.parameterContextPermissions.canRead === true && nfCommon.currentUser.parameterContextPermissions.canWrite === true;
+            } else {
+                return false;
+            }
+        },
+
+        /**
          * Determines whether the current user can access counters.
          *
          * @returns {boolean}
@@ -1279,6 +1303,19 @@
         },
 
         /**
+         * Formats a number (in milliseconds) to a human-readable textual description.
+         *
+         * @param duration number of milliseconds representing the duration
+         * @return {string|*} a human-readable string
+         */
+        formatPredictedDuration: function (duration) {
+            if (duration === 0) {
+                return 'now';
+            }
+            return moment.duration(duration, 'ms').humanize();
+        },
+
+        /**
          * Constants for formatting data size.
          */
         BYTES_IN_KILOBYTE: 1024,
@@ -1672,13 +1709,25 @@
             return formattedGarbageCollections;
         },
 
+        /**
+         * Returns whether the specified resource is for a global policy.
+         *
+         * @param resource
+         */
+        isGlobalPolicy: function (value) {
+            return nfCommon.getPolicyTypeListing(value) !== null;
+        },
+
+        /**
+         * Gets the policy type for the specified resource.
+         *
+         * @param value
+         * @returns {*}
+         */
         getPolicyTypeListing: function (value) {
-            var nest = d3.nest()
-                .key(function (d) {
-                    return d.value;
-                })
-                .map(policyTypeListing, d3.map);
-            return nest.get(value)[0];
+            return policyTypeListing.find(function (policy) {
+                return value === policy.value;
+            });
         },
 
         /**

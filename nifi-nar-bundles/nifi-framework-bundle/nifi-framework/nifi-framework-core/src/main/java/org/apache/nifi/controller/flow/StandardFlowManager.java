@@ -139,7 +139,7 @@ public class StandardFlowManager implements FlowManager {
         id = requireNonNull(id).intern();
         name = requireNonNull(name).intern();
         verifyPortIdDoesNotExist(id);
-        return new StandardPublicPort(id, name, null,
+        return new StandardPublicPort(id, name,
             TransferDirection.RECEIVE, ConnectableType.INPUT_PORT, authorizer, bulletinRepository,
             processScheduler, isSiteToSiteSecure, nifiProperties.getBoredYieldDuration(),
             IdentityMappingUtil.getIdentityMappings(nifiProperties));
@@ -149,7 +149,7 @@ public class StandardFlowManager implements FlowManager {
         id = requireNonNull(id).intern();
         name = requireNonNull(name).intern();
         verifyPortIdDoesNotExist(id);
-        return new StandardPublicPort(id, name, null,
+        return new StandardPublicPort(id, name,
             TransferDirection.SEND, ConnectableType.OUTPUT_PORT, authorizer, bulletinRepository,
             processScheduler, isSiteToSiteSecure, nifiProperties.getBoredYieldDuration(),
             IdentityMappingUtil.getIdentityMappings(nifiProperties));
@@ -211,7 +211,9 @@ public class StandardFlowManager implements FlowManager {
     }
 
     public RemoteProcessGroup createRemoteProcessGroup(final String id, final String uris) {
-        return new StandardRemoteProcessGroup(requireNonNull(id), uris, null, processScheduler, bulletinRepository, sslContext, nifiProperties);
+        return new StandardRemoteProcessGroup(requireNonNull(id), uris, null,
+            processScheduler, bulletinRepository, sslContext, nifiProperties,
+            flowController.getStateManagerProvider().getStateManager(id));
     }
 
     public void setRootGroup(final ProcessGroup rootGroup) {
@@ -598,7 +600,7 @@ public class StandardFlowManager implements FlowManager {
                 if (value != null) {
                     final ControllerServiceNode serviceNode = flowController.getControllerServiceProvider().getControllerServiceNode(value);
                     if (serviceNode != null) {
-                        serviceNode.removeReference(reportingTaskNode);
+                        serviceNode.removeReference(reportingTaskNode, descriptor);
                     }
                 }
             }
@@ -654,7 +656,7 @@ public class StandardFlowManager implements FlowManager {
                 if (value != null) {
                     final ControllerServiceNode referencedNode = getRootControllerService(value);
                     if (referencedNode != null) {
-                        referencedNode.removeReference(service);
+                        referencedNode.removeReference(service, descriptor);
                     }
                 }
             }
@@ -736,7 +738,7 @@ public class StandardFlowManager implements FlowManager {
     }
 
     @Override
-    public ParameterContext createParameterContext(final String id, final String name, final Set<Parameter> parameters) {
+    public ParameterContext createParameterContext(final String id, final String name, final Map<String, Parameter> parameters) {
         final boolean namingConflict = parameterContextManager.getParameterContexts().stream()
             .anyMatch(paramContext -> paramContext.getName().equals(name));
 

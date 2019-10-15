@@ -86,7 +86,6 @@ import org.apache.nifi.web.api.dto.FlowSnippetDTO;
 import org.apache.nifi.web.api.dto.FunnelDTO;
 import org.apache.nifi.web.api.dto.LabelDTO;
 import org.apache.nifi.web.api.dto.ParameterContextDTO;
-import org.apache.nifi.web.api.dto.ParameterContextReferenceDTO;
 import org.apache.nifi.web.api.dto.ParameterDTO;
 import org.apache.nifi.web.api.dto.PortDTO;
 import org.apache.nifi.web.api.dto.PositionDTO;
@@ -97,6 +96,7 @@ import org.apache.nifi.web.api.dto.RemoteProcessGroupDTO;
 import org.apache.nifi.web.api.dto.ReportingTaskDTO;
 import org.apache.nifi.web.api.dto.TemplateDTO;
 import org.apache.nifi.web.api.dto.VersionControlInformationDTO;
+import org.apache.nifi.web.api.entity.ParameterContextReferenceEntity;
 import org.apache.nifi.web.api.entity.ParameterEntity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -131,6 +131,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.zip.GZIPInputStream;
 
@@ -547,10 +548,10 @@ public class StandardFlowSynchronizer implements FlowSynchronizer {
     }
 
     private ParameterContext createParameterContext(final ParameterContextDTO dto, final FlowManager flowManager) {
-        final Set<Parameter> parameters = dto.getParameters().stream()
+        final Map<String, Parameter> parameters = dto.getParameters().stream()
             .map(ParameterEntity::getParameter)
             .map(this::createParameter)
-            .collect(Collectors.toSet());
+            .collect(Collectors.toMap(param -> param.getDescriptor().getName(), Function.identity()));
 
         final ParameterContext context = flowManager.createParameterContext(dto.getId(), dto.getName(), parameters);
         context.setDescription(dto.getDescription());
@@ -1160,7 +1161,7 @@ public class StandardFlowSynchronizer implements FlowSynchronizer {
             group.setComments(comments);
         }
 
-        final ParameterContextReferenceDTO parameterContextReference = dto.getParameterContext();
+        final ParameterContextReferenceEntity parameterContextReference = dto.getParameterContext();
         if (parameterContextReference != null && parameterContextReference.getId() != null) {
             final String parameterContextId = parameterContextReference.getId();
             final ParameterContext parameterContext = parameterContextManager.getParameterContext(parameterContextId);

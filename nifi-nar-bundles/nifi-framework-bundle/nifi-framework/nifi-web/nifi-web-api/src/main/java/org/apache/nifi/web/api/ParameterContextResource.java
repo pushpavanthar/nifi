@@ -802,7 +802,7 @@ public class ParameterContextResource extends ApplicationResource {
         final Consumer<AsynchronousWebRequest<ParameterContextEntity, ParameterContextEntity>> updateTask = asyncRequest -> {
             try {
                 final ParameterContextEntity updatedParameterContextEntity = updateParameterContext(asyncRequest, requestWrapper.getComponentLifecycle(), requestWrapper.getExampleUri(),
-                    requestWrapper.getAffectedComponents(), requestWrapper.isReplicateRequest(), requestRevision, requestWrapper.getParameterContextEntity());
+                    requestWrapper.getReferencingComponents(), requestWrapper.isReplicateRequest(), requestRevision, requestWrapper.getParameterContextEntity());
 
                 asyncRequest.markStepComplete(updatedParameterContextEntity);
             } catch (final ResumeFlowException rfe) {
@@ -865,6 +865,7 @@ public class ParameterContextResource extends ApplicationResource {
         final ParameterContextEntity updatedEntity;
         try {
             updatedEntity = performParameterContextUpdate(asyncRequest, uri, replicateRequest, revision, updatedContextEntity);
+            asyncRequest.markStepComplete();
             logger.info("Successfully updated Parameter Context with ID {}", updatedContextEntity.getId());
         } finally {
             // TODO: can almost certainly be refactored so that the same code is shared between VersionsResource and ParameterContextResource.
@@ -968,8 +969,6 @@ public class ParameterContextResource extends ApplicationResource {
             logger.info("Restarting {} Processors after having updated Parameter Context", processors.size());
         }
 
-        asyncRequest.markStepComplete();
-
         // Step 14. Restart all components
         final Set<AffectedComponentEntity> componentsToStart = getUpdatedEntities(processors);
 
@@ -978,6 +977,7 @@ public class ParameterContextResource extends ApplicationResource {
 
         try {
             componentLifecycle.scheduleComponents(uri, "root", componentsToStart, ScheduledState.RUNNING, startComponentsPause, InvalidComponentAction.SKIP);
+            asyncRequest.markStepComplete();
         } catch (final IllegalStateException ise) {
             // Component Lifecycle will restart the Processors only if they are valid. If IllegalStateException gets thrown, we need to provide
             // a more intelligent error message as to exactly what happened, rather than indicate that the flow could not be updated.
@@ -1003,8 +1003,6 @@ public class ParameterContextResource extends ApplicationResource {
             logger.info("Re-Enabling {} Controller Services after having updated Parameter Context", controllerServices.size());
         }
 
-        asyncRequest.markStepComplete();
-
         // Step 13. Re-enable all disabled controller services
         final CancellableTimedPause enableServicesPause = new CancellableTimedPause(250, Long.MAX_VALUE, TimeUnit.MILLISECONDS);
         asyncRequest.setCancelCallback(enableServicesPause::cancel);
@@ -1012,6 +1010,7 @@ public class ParameterContextResource extends ApplicationResource {
 
         try {
             componentLifecycle.activateControllerServices(uri, "root", servicesToEnable, ControllerServiceState.ENABLED, enableServicesPause, InvalidComponentAction.SKIP);
+            asyncRequest.markStepComplete();
         } catch (final IllegalStateException ise) {
             // Component Lifecycle will re-enable the Controller Services only if they are valid. If IllegalStateException gets thrown, we need to provide
             // a more intelligent error message as to exactly what happened, rather than indicate that the Parameter Context could not be updated.
@@ -1155,14 +1154,15 @@ public class ParameterContextResource extends ApplicationResource {
         updateRequestDto.setUpdateSteps(updateSteps);
 
         final ParameterContextEntity initialRequest = asyncRequest.getRequest();
+
+        // The AffectedComponentEntity itself does not evaluate equality based on component information. As a result, we want to de-dupe the entities based on their identifiers.
         final Map<String, AffectedComponentEntity> affectedComponents = new HashMap<>();
         for (final ParameterEntity entity : initialRequest.getComponent().getParameters()) {
             for (final AffectedComponentEntity affectedComponentEntity : entity.getParameter().getReferencingComponents()) {
-                affectedComponents.put(affectedComponentEntity.getId(), affectedComponentEntity);
+                affectedComponents.put(affectedComponentEntity.getId(), serviceFacade.getUpdatedAffectedComponentEntity(affectedComponentEntity));
             }
         }
-
-        updateRequestDto.setAffectedComponents(new HashSet<>(affectedComponents.values()));
+        updateRequestDto.setReferencingComponents(new HashSet<>(affectedComponents.values()));
 
         // Populate the Affected Components
         final ParameterContextEntity contextEntity = serviceFacade.getParameterContext(asyncRequest.getComponentId(), NiFiUserUtils.getNiFiUser());
@@ -1211,7 +1211,7 @@ public class ParameterContextResource extends ApplicationResource {
             return exampleUri;
         }
 
-        public Set<AffectedComponentEntity> getAffectedComponents() {
+        public Set<AffectedComponentEntity> getReferencingComponents() {
             return affectedComponents;
         }
 

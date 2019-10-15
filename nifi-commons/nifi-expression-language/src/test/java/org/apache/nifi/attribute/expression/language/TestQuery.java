@@ -17,6 +17,7 @@
 package org.apache.nifi.attribute.expression.language;
 
 import org.antlr.runtime.tree.Tree;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.nifi.attribute.expression.language.Query.Range;
 import org.apache.nifi.attribute.expression.language.evaluation.NumberQueryResult;
 import org.apache.nifi.attribute.expression.language.evaluation.QueryResult;
@@ -38,6 +39,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.Reader;
 import java.text.SimpleDateFormat;
+import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Collections;
 import java.util.Date;
@@ -60,6 +62,27 @@ import static org.junit.Assert.fail;
 
 public class TestQuery {
 
+    // Address book JsonPath constants
+    public static final String ADDRESS_BOOK_JSON_PATH_FIRST_NAME = "${json:jsonPath('$.firstName')}";
+    public static final String ADDRESS_BOOK_JSON_PATH_LAST_NAME = "${json:jsonPath('$.lastName')}";
+    public static final String ADDRESS_BOOK_JSON_PATH_AGE = "${json:jsonPath('$.age')}";
+    public static final String ADDRESS_BOOK_JSON_PATH_VOTER = "${json:jsonPath('$.voter')}";
+    public static final String ADDRESS_BOOK_JSON_PATH_ADDRESS_POSTAL_CODE = "${json:jsonPath('$.address.postalCode')}";
+    public static final String ADDRESS_BOOK_JSON_PATH_PHONE_NUMBERS_TYPE_HOME_NUMBER = "${json:jsonPath(\"$.phoneNumbers[?(@.type=='home')].number\")}";
+    public static final String ADDRESS_BOOK_JSON_PATH_PHONE_NUMBERS_TYPE_OFFICE_NUMBER = "${json:jsonPath(\"$.phoneNumbers[?(@.type=='office')].number\")}";
+    public static final String ADDRESS_BOOK_JSON_PATH_HEIGHT = "${json:jsonPath('$.height')}";
+    public static final String ADDRESS_BOOK_JSON_PATH_EMPTY = "";
+
+    private static final List<String> phoneBookAttributes = Arrays.asList(
+            ADDRESS_BOOK_JSON_PATH_FIRST_NAME,
+            ADDRESS_BOOK_JSON_PATH_LAST_NAME,
+            ADDRESS_BOOK_JSON_PATH_AGE,
+            ADDRESS_BOOK_JSON_PATH_VOTER,
+            ADDRESS_BOOK_JSON_PATH_ADDRESS_POSTAL_CODE,
+            ADDRESS_BOOK_JSON_PATH_PHONE_NUMBERS_TYPE_HOME_NUMBER,
+            ADDRESS_BOOK_JSON_PATH_PHONE_NUMBERS_TYPE_OFFICE_NUMBER
+    );
+
     @Test
     public void testCompilation() {
         assertInvalid("${attr:uuid()}");
@@ -74,6 +97,10 @@ public class TestQuery {
         assertValid("${literal(3)}");
         assertValid("${random()}");
         assertValid("${getStateValue('the_count')}");
+        assertValid("${attr:padLeft(10, '#')}");
+        assertValid("${attr:padRight(10, '#')}");
+        assertValid("${attr:padLeft(10)}");
+        assertValid("${attr:padRight(10)}");
         // left here because it's convenient for looking at the output
         //System.out.println(Query.compile("").evaluate(null));
     }
@@ -294,17 +321,12 @@ public class TestQuery {
         verifyEquals("${#{test}:append(' - '):append(#{test})}", attributes, stateValues, parameters,"unit - unit");
     }
 
-
     @Test
     public void testJsonPath() throws IOException {
-        final Map<String, String> attributes = new HashMap<>();
-        attributes.put("json", getResourceAsString("/json/address-book.json"));
-        verifyEquals("${json:jsonPath('$.firstName')}", attributes, "John");
-        verifyEquals("${json:jsonPath('$.address.postalCode')}", attributes, "10021-3100");
-        verifyEquals("${json:jsonPath(\"$.phoneNumbers[?(@.type=='home')].number\")}", attributes, "212 555-1234");
-        verifyEquals("${json:jsonPath('$.phoneNumbers')}", attributes,
-                "[{\"type\":\"home\",\"number\":\"212 555-1234\"},{\"type\":\"office\",\"number\":\"646 555-4567\"}]");
-        verifyEquals("${json:jsonPath('$.missing-path')}", attributes, "");
+        Map<String,String> attributes = verifyJsonPathExpressions(
+            ADDRESS_BOOK_JSON_PATH_EMPTY,
+            "", "${json:jsonPathDelete('$.missingpath')}", "");
+        verifyEquals("${json:jsonPath('$.missingpath')}", attributes, "");
         try {
             verifyEquals("${json:jsonPath('$..')}", attributes, "");
             Assert.fail("Did not detect bad JSON path expression");
@@ -323,67 +345,184 @@ public class TestQuery {
         }
     }
 
-    @Test
-    public void testJsonPathDeleteFirstNameAttribute() throws IOException {
+    private void verifyAddressBookAttributes(String originalAddressBook, Map<String,String> attributes, String updatedAttribute, Object updatedValue) {
+
+        if (StringUtils.isBlank(attributes.get("json"))) {
+            throw new IllegalArgumentException("original Json attributes is empty");
+        }
+
+        Map<String, String> originalAttributes = new HashMap<>();
+        originalAttributes.put("json", originalAddressBook);
+
+        phoneBookAttributes.stream()
+                .filter(currentAttribute -> !currentAttribute.equals(updatedAttribute))
+                .forEach(currentAttribute -> {
+                            String expected = Query.evaluateExpressions(currentAttribute, originalAttributes, null, null, ParameterLookup.EMPTY);
+                            verifyEquals(currentAttribute, attributes, expected);
+                        }
+                );
+        if (! ADDRESS_BOOK_JSON_PATH_EMPTY.equals(updatedAttribute) ) {
+            verifyEquals(updatedAttribute, attributes, updatedValue);
+        }
+    }
+
+    private Map<String,String> verifyJsonPathExpressions(String targetAttribute, Object originalValue, String updateExpression, Object updatedValue) throws IOException {
         final Map<String, String> attributes = new HashMap<>();
         String addressBook = getResourceAsString("/json/address-book.json");
         attributes.put("json", addressBook);
 
-        verifyEquals("${json:jsonPath('$.firstName')}", attributes, "John");
+        if ( ! ADDRESS_BOOK_JSON_PATH_EMPTY.equals(targetAttribute) ) {
+            verifyEquals(targetAttribute, attributes, originalValue);
+        }
 
-        String addressBookAfterDelete = Query.evaluateExpressions("${json:jsonPathDelete('$.firstName')}", attributes, ParameterLookup.EMPTY);
+        String addressBookAfterUpdate = Query.evaluateExpressions(updateExpression, attributes, ParameterLookup.EMPTY);
         attributes.clear();
-        attributes.put("json", addressBookAfterDelete);
+        attributes.put("json", addressBookAfterUpdate);
 
-        verifyEquals("${json:jsonPath('$.lastName')}", attributes, "Smith");
-        verifyEquals("${json:jsonPath('$.age')}", attributes, "25");
-        verifyEquals("${json:jsonPath('$.address.postalCode')}", attributes, "10021-3100");
-        verifyEquals("${json:jsonPath(\"$.phoneNumbers[?(@.type=='home')].number\")}", attributes, "212 555-1234");
-        verifyEquals("${json:jsonPath('$.phoneNumbers')}", attributes,
-                "[{\"type\":\"home\",\"number\":\"212 555-1234\"},{\"type\":\"office\",\"number\":\"646 555-4567\"}]");
+        verifyAddressBookAttributes(addressBook, attributes, targetAttribute, updatedValue);
 
-        verifyEquals("${json:jsonPath('$.firstName')}", attributes, "");
+        return attributes;
+    }
+
+    @Test
+    public void testJsonPathDeleteFirstNameAttribute() throws IOException {
+        verifyJsonPathExpressions(
+            ADDRESS_BOOK_JSON_PATH_FIRST_NAME,
+            "John",
+            "${json:jsonPathDelete('$.firstName')}",
+            ""
+        );
     }
 
     @Test
     public void testJsonPathDeleteMissingPath() throws IOException {
-        final Map<String, String> attributes = new HashMap<>();
-        String addressBook = getResourceAsString("/json/address-book.json");
-        attributes.put("json", addressBook);
-
-        String addressBookAfterDelete = Query.evaluateExpressions("${json:jsonPathDelete('$.missing-path')}", attributes, ParameterLookup.EMPTY);
-        attributes.clear();
-        attributes.put("json", addressBookAfterDelete);
-
-        verifyEquals("${json:jsonPath('$.firstName')}", attributes, "John");
-        verifyEquals("${json:jsonPath('$.lastName')}", attributes, "Smith");
-        verifyEquals("${json:jsonPath('$.age')}", attributes, "25");
-        verifyEquals("${json:jsonPath('$.address')}", attributes,
-                "{\"streetAddress\":\"21 2nd Street\",\"city\":\"New York\",\"state\":\"NY\",\"postalCode\":\"10021-3100\"}");
-        verifyEquals("${json:jsonPath('$.phoneNumbers')}", attributes,
-                "[{\"type\":\"home\",\"number\":\"212 555-1234\"},{\"type\":\"office\",\"number\":\"646 555-4567\"}]");
+       verifyJsonPathExpressions(
+            ADDRESS_BOOK_JSON_PATH_EMPTY,
+            "",
+            "${json:jsonPathDelete('$.missing-path')}",
+            "");
     }
 
     @Test
     public void testJsonPathDeleteHomePhoneNumber() throws IOException {
-        final Map<String, String> attributes = new HashMap<>();
-        String addressBook = getResourceAsString("/json/address-book.json");
-        attributes.put("json", addressBook);
+        verifyJsonPathExpressions(
+            ADDRESS_BOOK_JSON_PATH_PHONE_NUMBERS_TYPE_HOME_NUMBER,
+            "212 555-1234",
+            "${json:jsonPathDelete(\"$.phoneNumbers[?(@.type=='home')]\")}",
+            "[]");
+    }
 
-        verifyEquals("${json:jsonPath(\"$.phoneNumbers[?(@.type=='home')].number\")}", attributes, "212 555-1234");
+    @Test
+    public void testJsonPathSetFirstNameAttribute() throws IOException {
+        verifyJsonPathExpressions(
+            ADDRESS_BOOK_JSON_PATH_FIRST_NAME,
+            "John",
+            "${json:jsonPathSet('$.firstName', 'James')}",
+            "James");
+    }
 
-        String addressBookAfterDelete = Query.evaluateExpressions("${json:jsonPathDelete(\"$.phoneNumbers[?(@.type=='home')]\")}", attributes, ParameterLookup.EMPTY);
+    @Test
+    public void testJsonPathSetAgeWholeNumberAttribute() throws IOException {
+        verifyJsonPathExpressions(
+            ADDRESS_BOOK_JSON_PATH_AGE,
+            "25",
+            "${json:jsonPathSet('$.age', '35')}",
+            "35");
+    }
 
-        attributes.clear();
-        attributes.put("json", addressBookAfterDelete);
+    @Test
+    public void testJsonPathSetVoterBooleanAttribute() throws IOException {
+        verifyJsonPathExpressions(
+            ADDRESS_BOOK_JSON_PATH_VOTER,
+            "true",
+            "${json:jsonPathSet('$.voter', false)}",
+            "false");
+    }
 
-        verifyEquals("${json:jsonPath('$.firstName')}", attributes, "John");
-        verifyEquals("${json:jsonPath('$.lastName')}", attributes, "Smith");
-        verifyEquals("${json:jsonPath('$.age')}", attributes, "25");
-        verifyEquals("${json:jsonPath('$.address.postalCode')}", attributes, "10021-3100");
-        verifyEquals("${json:jsonPath(\"$.phoneNumbers[?(@.type=='home')].number\")}", attributes, "[]");
-        verifyEquals("${json:jsonPath('$.phoneNumbers')}", attributes,
-                "{\"type\":\"office\",\"number\":\"646 555-4567\"}");
+    @Test
+    public void testJsonPathSetHeightNumberAttribute() throws IOException {
+        verifyJsonPathExpressions(
+            ADDRESS_BOOK_JSON_PATH_HEIGHT,
+            "6.1",
+            "${json:jsonPathSet('$.height', 5.9)}",
+            "5.9");
+    }
+
+    @Test
+    public void testJsonPathSetMissingPathAttribute() throws IOException {
+        verifyJsonPathExpressions(
+            ADDRESS_BOOK_JSON_PATH_EMPTY,
+            "",
+            "${json:jsonPathSet('$.missing-path', 5.9)}",
+            "");
+    }
+
+    @Test
+    public void testJsonPathAddNicknameJimmy() throws IOException {
+        Map<String,String> attributes = verifyJsonPathExpressions(
+                ADDRESS_BOOK_JSON_PATH_EMPTY,
+                "",
+                "${json:jsonPathAdd('$.nicknames', 'Jimmy')}",
+                "");
+        verifyEquals("${json:jsonPath('$.nicknames')}", attributes, "Jimmy");
+    }
+
+    @Test
+    public void testJsonPathAddNicknameJimmyAtNonexistantPath() throws IOException {
+        Map<String,String> attributes = verifyJsonPathExpressions(
+                ADDRESS_BOOK_JSON_PATH_EMPTY,
+                "",
+                "${json:jsonPathAdd('$.missing-path', 'Jimmy')}",
+                "");
+       verifyEquals("${json:jsonPath('$.missing-path')}", attributes, "");
+    }
+
+    @Test(expected=IllegalArgumentException.class)
+    public void testJsonPathAddNicknameJimmyAtNonArray() throws IOException {
+        Map<String,String> attributes = verifyJsonPathExpressions(
+                ADDRESS_BOOK_JSON_PATH_EMPTY,
+                "",
+                "${json:jsonPathAdd('$.firstName', 'Jimmy')}",
+                "");
+    }
+
+    @Test
+    public void testJsonPathPutRootLevelMiddlenameTuron() throws IOException {
+        Map<String,String> attributes = verifyJsonPathExpressions(
+                ADDRESS_BOOK_JSON_PATH_EMPTY,
+                "",
+                "${json:jsonPathPut('$','middlename','Turon')}",
+                "");
+        verifyEquals("${json:jsonPath('$.middlename')}", attributes, "Turon");
+    }
+
+    @Test
+    public void testJsonPathPutCountryToMap() throws IOException {
+        Map<String,String> attributes = verifyJsonPathExpressions(
+                ADDRESS_BOOK_JSON_PATH_EMPTY,
+                "",
+                "${json:jsonPathPut('$.address','country','US')}",
+                "");
+        verifyEquals("${json:jsonPath('$.address.country')}", attributes, "US");
+    }
+
+    @Test
+    public void testJsonPathPutElementToArray() throws IOException {
+        Map<String,String> attributes = verifyJsonPathExpressions(
+                ADDRESS_BOOK_JSON_PATH_EMPTY,
+                "",
+                "${json:jsonPathPut('$.phoneNumbers[1]', 'backup', '212-555-1212')}",
+                "");
+        verifyEquals("${json:jsonPath('$.phoneNumbers[1].backup')}", attributes, "212-555-1212");
+    }
+
+    @Test
+    public void testJsonPathPutOverwriteFirstNameToJimmy() throws IOException {
+        Map<String,String> attributes = verifyJsonPathExpressions(
+                ADDRESS_BOOK_JSON_PATH_FIRST_NAME,
+                "John",
+                "${json:jsonPathPut('$','firstName','Jimmy')}",
+                "Jimmy");
     }
 
     @Test
@@ -1900,6 +2039,44 @@ public class TestQuery {
     public void testThread() {
         final Map<String, String> attributes = new HashMap<>();
         verifyEquals("${thread()}", attributes, "main");
+    }
+
+    @Test
+    public void testPadLeft() {
+        final Map<String, String> attributes = new HashMap<>();
+        attributes.put("attr", "hello");
+        attributes.put("emptyString", "");
+        attributes.put("nullString", null);
+
+        verifyEquals("${attr:padLeft(10, '@')}", attributes, "@@@@@hello");
+        verifyEquals("${attr:padLeft(10)}", attributes, "_____hello");
+        verifyEquals("${attr:padLeft(10, \"xy\")}", attributes, "xyxyxhello");
+        verifyEquals("${attr:padLeft(10, \"aVeryLongPaddingString\")}", attributes, "aVeryhello");
+        verifyEquals("${attr:padLeft(1, \"a\")}", attributes, "hello");
+        verifyEquals("${attr:padLeft(-10, \"a\")}", attributes, "hello");
+        verifyEquals("${emptyString:padLeft(10, '@')}", attributes, "@@@@@@@@@@");
+        verifyEquals("${attr:padLeft(9999999999, \"abc\")}", attributes, "hello");
+        verifyEmpty("${nonExistingAttr:padLeft(10, \"abc\")}", attributes);
+        verifyEmpty("${nullString:padLeft(10, \"@\")}", attributes);
+    }
+
+    @Test
+    public void testPadRight() {
+        final Map<String, String> attributes = new HashMap<>();
+        attributes.put("attr", "hello");
+        attributes.put("emptyString", "");
+        attributes.put("nullString", null);
+
+        verifyEquals("${attr:padRight(10, '@')}", attributes, "hello@@@@@");
+        verifyEquals("${attr:padRight(10)}", attributes, "hello_____");
+        verifyEquals("${attr:padRight(10, \"xy\")}", attributes, "helloxyxyx");
+        verifyEquals("${attr:padRight(10, \"aVeryLongPaddingString\")}", attributes, "helloaVery");
+        verifyEquals("${attr:padRight(1, \"a\")}", attributes, "hello");
+        verifyEquals("${attr:padRight(-10, \"a\")}", attributes, "hello");
+        verifyEquals("${emptyString:padRight(10, '@')}", attributes, "@@@@@@@@@@");
+        verifyEquals("${attr:padRight(9999999999, \"abc\")}", attributes, "hello");
+        verifyEmpty("${nonExistingAttr:padRight(10, \"abc\")}", attributes);
+        verifyEmpty("${nullString:padRight(10, \"@\")}", attributes);
     }
 
     private void verifyEquals(final String expression, final Map<String, String> attributes, final Object expectedResult) {

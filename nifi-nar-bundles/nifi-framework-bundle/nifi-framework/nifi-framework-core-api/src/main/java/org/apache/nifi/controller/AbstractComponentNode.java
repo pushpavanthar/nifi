@@ -346,13 +346,13 @@ public abstract class AbstractComponentNode implements ComponentNode {
                 if (oldConfiguration != null) {
                     final ControllerServiceNode oldNode = serviceProvider.getControllerServiceNode(effectiveValue);
                     if (oldNode != null) {
-                        oldNode.removeReference(this);
+                        oldNode.removeReference(this, descriptor);
                     }
                 }
 
                 final ControllerServiceNode newNode = serviceProvider.getControllerServiceNode(effectiveValue);
                 if (newNode != null) {
-                    newNode.addReference(this);
+                    newNode.addReference(this, descriptor);
                 }
             }
         }
@@ -404,7 +404,7 @@ public abstract class AbstractComponentNode implements ComponentNode {
             if (value != null) {
                 final ControllerServiceNode oldNode = serviceProvider.getControllerServiceNode(value);
                 if (oldNode != null) {
-                    oldNode.removeReference(this);
+                    oldNode.removeReference(this, descriptor);
                 }
             }
         }
@@ -657,6 +657,16 @@ public abstract class AbstractComponentNode implements ComponentNode {
                         .subject(propertyDescriptor.getDisplayName())
                         .valid(false)
                         .explanation("Property references Parameter '" + paramName + "' but the currently selected Parameter Context does not have a Parameter with that name")
+                        .build());
+
+                    continue;
+                }
+
+                if (!validationContext.isParameterSet(paramName)) {
+                    results.add(new ValidationResult.Builder()
+                        .subject(propertyDescriptor.getDisplayName())
+                        .valid(false)
+                        .explanation("Property references Parameter '" + paramName + "' but the currently selected Parameter Context does not have a value set for that Parameter")
                         .build());
                 }
             }

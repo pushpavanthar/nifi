@@ -53,6 +53,7 @@ import org.apache.nifi.registry.flow.FlowRegistryUtils;
 import org.apache.nifi.registry.flow.VersionedFlow;
 import org.apache.nifi.registry.flow.VersionedFlowSnapshot;
 import org.apache.nifi.registry.flow.VersionedFlowState;
+import org.apache.nifi.registry.flow.VersionedParameterContext;
 import org.apache.nifi.registry.variable.VariableRegistryUpdateRequest;
 import org.apache.nifi.registry.variable.VariableRegistryUpdateStep;
 import org.apache.nifi.remote.util.SiteToSiteRestApiClient;
@@ -66,7 +67,6 @@ import org.apache.nifi.web.api.dto.ConnectionDTO;
 import org.apache.nifi.web.api.dto.ControllerServiceDTO;
 import org.apache.nifi.web.api.dto.DtoFactory;
 import org.apache.nifi.web.api.dto.FlowSnippetDTO;
-import org.apache.nifi.web.api.dto.ParameterContextReferenceDTO;
 import org.apache.nifi.web.api.dto.PortDTO;
 import org.apache.nifi.web.api.dto.PositionDTO;
 import org.apache.nifi.web.api.dto.ProcessGroupDTO;
@@ -97,6 +97,7 @@ import org.apache.nifi.web.api.entity.InstantiateTemplateRequestEntity;
 import org.apache.nifi.web.api.entity.LabelEntity;
 import org.apache.nifi.web.api.entity.LabelsEntity;
 import org.apache.nifi.web.api.entity.OutputPortsEntity;
+import org.apache.nifi.web.api.entity.ParameterContextReferenceEntity;
 import org.apache.nifi.web.api.entity.PortEntity;
 import org.apache.nifi.web.api.entity.ProcessGroupEntity;
 import org.apache.nifi.web.api.entity.ProcessGroupsEntity;
@@ -477,13 +478,13 @@ public class ProcessGroupResource extends ApplicationResource {
                     authorizable.authorize(authorizer, RequestAction.WRITE, user);
 
                     // Ensure that user has READ permission on current Parameter Context (if any) because user is un-binding.
-                    final ParameterContextReferenceDTO referencedParamContext = requestProcessGroupDTO.getParameterContext();
+                    final ParameterContextReferenceEntity referencedParamContext = requestProcessGroupDTO.getParameterContext();
                     if (referencedParamContext != null) {
                         // Lookup the current Parameter Context and determine whether or not the Parameter Context is changing
                         final String groupId = requestProcessGroupDTO.getId();
                         final ProcessGroupEntity currentGroupEntity = serviceFacade.getProcessGroup(groupId);
                         final ProcessGroupDTO groupDto = currentGroupEntity.getComponent();
-                        final ParameterContextReferenceDTO currentParamContext = groupDto.getParameterContext();
+                        final ParameterContextReferenceEntity currentParamContext = groupDto.getParameterContext();
                         final String currentParamContextId = currentParamContext == null ? null : currentParamContext.getId();
                         final boolean parameterContextChanging = !Objects.equals(referencedParamContext.getId(), currentParamContextId);
 
@@ -1775,7 +1776,7 @@ public class ProcessGroupResource extends ApplicationResource {
                     processGroup.authorize(authorizer, RequestAction.WRITE, user);
 
                     // If request specifies a Parameter Context, need to authorize that user has READ policy for the Parameter Context.
-                    final ParameterContextReferenceDTO referencedParamContext = requestProcessGroupEntity.getComponent().getParameterContext();
+                    final ParameterContextReferenceEntity referencedParamContext = requestProcessGroupEntity.getComponent().getParameterContext();
                     if (referencedParamContext != null && referencedParamContext.getId() != null) {
                         lookup.getParameterContext(referencedParamContext.getId()).authorize(authorizer, RequestAction.READ, user);
                     }
@@ -1789,6 +1790,11 @@ public class ProcessGroupResource extends ApplicationResource {
                             final ComponentAuthorizable restrictedComponentAuthorizable = lookup.getConfigurableComponent(restrictedComponent);
                             authorizeRestrictions(authorizer, restrictedComponentAuthorizable);
                         });
+
+                        final Map<String, VersionedParameterContext> parameterContexts = versionedFlowSnapshot.getParameterContexts();
+                        if (parameterContexts != null) {
+                            parameterContexts.values().forEach(context -> AuthorizeParameterReference.authorizeParameterContextAddition(context, serviceFacade, authorizer, lookup, user));
+                        }
                     }
                 },
                 () -> {
@@ -1823,7 +1829,7 @@ public class ProcessGroupResource extends ApplicationResource {
                         // To accomplish this, we call updateProcessGroupContents() passing 'true' for the updateSettings flag but null out the position.
                         flowSnapshot.getFlowContents().setPosition(null);
                         entity = serviceFacade.updateProcessGroupContents(newGroupRevision, newGroupId, versionControlInfo, flowSnapshot,
-                                getIdGenerationSeed().orElse(null), false, true, true);
+                                getIdGenerationSeed().orElse(null), false, true, true, this::generateUuid);
                     }
 
                     populateRemainingProcessGroupEntityContent(entity);
@@ -1834,6 +1840,7 @@ public class ProcessGroupResource extends ApplicationResource {
                 }
         );
     }
+
 
 
     private VersionedFlowSnapshot getFlowFromRegistry(final VersionControlInformationDTO versionControlInfo) {

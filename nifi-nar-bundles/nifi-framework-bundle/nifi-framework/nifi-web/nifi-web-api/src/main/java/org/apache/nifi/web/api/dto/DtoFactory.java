@@ -82,6 +82,7 @@ import org.apache.nifi.controller.ProcessorNode;
 import org.apache.nifi.controller.ReportingTaskNode;
 import org.apache.nifi.controller.Snippet;
 import org.apache.nifi.controller.Template;
+import org.apache.nifi.controller.flow.FlowManager;
 import org.apache.nifi.controller.label.Label;
 import org.apache.nifi.controller.queue.DropFlowFileState;
 import org.apache.nifi.controller.queue.DropFlowFileStatus;
@@ -105,6 +106,8 @@ import org.apache.nifi.controller.status.PortStatus;
 import org.apache.nifi.controller.status.ProcessGroupStatus;
 import org.apache.nifi.controller.status.ProcessorStatus;
 import org.apache.nifi.controller.status.RemoteProcessGroupStatus;
+import org.apache.nifi.controller.status.analytics.ConnectionStatusPredictions;
+import org.apache.nifi.controller.status.analytics.StatusAnalytics;
 import org.apache.nifi.controller.status.history.GarbageCollectionHistory;
 import org.apache.nifi.controller.status.history.GarbageCollectionStatus;
 import org.apache.nifi.diagnostics.GarbageCollection;
@@ -138,6 +141,7 @@ import org.apache.nifi.registry.flow.VersionControlInformation;
 import org.apache.nifi.registry.flow.VersionedComponent;
 import org.apache.nifi.registry.flow.VersionedFlowState;
 import org.apache.nifi.registry.flow.VersionedFlowStatus;
+import org.apache.nifi.registry.flow.VersionedProcessGroup;
 import org.apache.nifi.registry.flow.diff.DifferenceType;
 import org.apache.nifi.registry.flow.diff.FlowComparison;
 import org.apache.nifi.registry.flow.diff.FlowDifference;
@@ -198,7 +202,10 @@ import org.apache.nifi.web.api.dto.provenance.lineage.LineageRequestDTO.LineageR
 import org.apache.nifi.web.api.dto.provenance.lineage.LineageResultsDTO;
 import org.apache.nifi.web.api.dto.provenance.lineage.ProvenanceLinkDTO;
 import org.apache.nifi.web.api.dto.provenance.lineage.ProvenanceNodeDTO;
+import org.apache.nifi.web.api.dto.status.ConnectionStatisticsDTO;
+import org.apache.nifi.web.api.dto.status.ConnectionStatisticsSnapshotDTO;
 import org.apache.nifi.web.api.dto.status.ConnectionStatusDTO;
+import org.apache.nifi.web.api.dto.status.ConnectionStatusPredictionsSnapshotDTO;
 import org.apache.nifi.web.api.dto.status.ConnectionStatusSnapshotDTO;
 import org.apache.nifi.web.api.dto.status.PortStatusDTO;
 import org.apache.nifi.web.api.dto.status.PortStatusSnapshotDTO;
@@ -217,6 +224,7 @@ import org.apache.nifi.web.api.entity.ComponentReferenceEntity;
 import org.apache.nifi.web.api.entity.ConnectionStatusSnapshotEntity;
 import org.apache.nifi.web.api.entity.ControllerServiceEntity;
 import org.apache.nifi.web.api.entity.FlowBreadcrumbEntity;
+import org.apache.nifi.web.api.entity.ParameterContextReferenceEntity;
 import org.apache.nifi.web.api.entity.ParameterEntity;
 import org.apache.nifi.web.api.entity.PortEntity;
 import org.apache.nifi.web.api.entity.PortStatusSnapshotEntity;
@@ -1174,16 +1182,65 @@ public final class DtoFactory {
         snapshot.setFlowFilesOut(connectionStatus.getOutputCount());
         snapshot.setBytesOut(connectionStatus.getOutputBytes());
 
+        ConnectionStatusPredictions predictions = connectionStatus.getPredictions();
+        ConnectionStatusPredictionsSnapshotDTO predictionsDTO = null;
+        if (predictions != null) {
+            predictionsDTO = new ConnectionStatusPredictionsSnapshotDTO();
+        }
+
         if (connectionStatus.getBackPressureObjectThreshold() > 0) {
             snapshot.setPercentUseCount(Math.min(100, StatusMerger.getUtilization(connectionStatus.getQueuedCount(), connectionStatus.getBackPressureObjectThreshold())));
+
+            if (predictionsDTO != null) {
+                snapshot.setPredictions(predictionsDTO);
+                predictionsDTO.setPredictionIntervalSeconds(((Long) (predictions.getPredictionIntervalMillis() / 1000L)).intValue());
+                predictionsDTO.setPredictedMillisUntilCountBackpressure(predictions.getPredictedTimeToCountBackpressureMillis());
+                predictionsDTO.setPredictedCountAtNextInterval(predictions.getNextPredictedQueuedCount());
+                predictionsDTO.setPredictedPercentCount(predictions.getPredictedPercentCount());
+                predictionsDTO.setPredictedPercentBytes(predictions.getPredictedPercentBytes());
+                predictionsDTO.setPredictionIntervalSeconds(((Long) (predictions.getPredictionIntervalMillis() / 1000L)).intValue());
+            }
         }
         if (connectionStatus.getBackPressureBytesThreshold() > 0) {
             snapshot.setPercentUseBytes(Math.min(100, StatusMerger.getUtilization(connectionStatus.getQueuedBytes(), connectionStatus.getBackPressureBytesThreshold())));
+
+            if (predictionsDTO != null) {
+                snapshot.setPredictions(predictionsDTO);
+                predictionsDTO.setPredictionIntervalSeconds(((Long) (predictions.getPredictionIntervalMillis() / 1000L)).intValue());
+                predictionsDTO.setPredictedMillisUntilBytesBackpressure(predictions.getPredictedTimeToBytesBackpressureMillis());
+                predictionsDTO.setPredictedBytesAtNextInterval(predictions.getNextPredictedQueuedBytes());
+                predictionsDTO.setPredictedPercentCount(predictions.getPredictedPercentCount());
+                predictionsDTO.setPredictedPercentBytes(predictions.getPredictedPercentBytes());
+                predictionsDTO.setPredictionIntervalSeconds(((Long) (predictions.getPredictionIntervalMillis() / 1000L)).intValue());
+            }
         }
 
         StatusMerger.updatePrettyPrintedFields(snapshot);
 
         return connectionStatusDto;
+    }
+
+    public ConnectionStatisticsDTO createConnectionStatisticsDto(final Connection connection, final StatusAnalytics statusAnalytics) {
+        final ConnectionStatisticsDTO connectionStatisticsDTO = new ConnectionStatisticsDTO();
+
+        connectionStatisticsDTO.setId(connection.getIdentifier());
+        connectionStatisticsDTO.setStatsLastRefreshed(new Date());
+
+        final ConnectionStatisticsSnapshotDTO snapshot = new ConnectionStatisticsSnapshotDTO();
+        connectionStatisticsDTO.setAggregateSnapshot(snapshot);
+
+        snapshot.setId(connection.getIdentifier());
+
+        Map<String,Long> predictions = statusAnalytics.getPredictions();
+        snapshot.setPredictedMillisUntilBytesBackpressure(predictions.get("timeToBytesBackpressureMillis"));
+        snapshot.setPredictedMillisUntilCountBackpressure(predictions.get("timeToCountBackpressureMillis"));
+        snapshot.setPredictedBytesAtNextInterval(predictions.get("nextIntervalBytes"));
+        snapshot.setPredictedCountAtNextInterval(predictions.get("nextIntervalCount").intValue());
+        snapshot.setPredictedPercentBytes(predictions.get("nextIntervalPercentageUseBytes").intValue());
+        snapshot.setPredictedPercentCount(predictions.get("nextIntervalPercentageUseCount").intValue());
+        snapshot.setPredictionIntervalMillis(predictions.get("intervalTimeMillis"));
+
+        return connectionStatisticsDTO;
     }
 
     public ProcessorStatusDTO createProcessorStatusDto(final ProcessorStatus procStatus) {
@@ -1405,7 +1462,9 @@ public final class DtoFactory {
         dto.setName(descriptor.getName());
         dto.setDescription(descriptor.getDescription());
         dto.setSensitive(descriptor.isSensitive());
-        dto.setValue(descriptor.isSensitive() ? SENSITIVE_VALUE_MASK : parameter.getValue());
+        if (parameter.getValue() != null) {
+            dto.setValue(descriptor.isSensitive() ? SENSITIVE_VALUE_MASK : parameter.getValue());
+        }
 
         final ParameterReferenceManager parameterReferenceManager = parameterContext.getParameterReferenceManager();
 
@@ -1939,12 +1998,17 @@ public final class DtoFactory {
 
         final ProcessorDTO processorDto = processorEntity.getComponent();
         final AffectedComponentDTO componentDto = new AffectedComponentDTO();
-        componentDto.setId(processorDto.getId());
-        componentDto.setName(processorDto.getName());
-        componentDto.setProcessGroupId(processorDto.getParentGroupId());
-        componentDto.setReferenceType(AffectedComponentDTO.COMPONENT_TYPE_PROCESSOR);
-        componentDto.setState(processorDto.getState());
-        componentDto.setValidationErrors(processorDto.getValidationErrors());
+        if (componentDto == null) {
+            componentDto.setId(processorEntity.getId());
+            componentDto.setName(processorEntity.getId());
+        } else {
+            componentDto.setId(processorDto.getId());
+            componentDto.setName(processorDto.getName());
+            componentDto.setProcessGroupId(processorDto.getParentGroupId());
+            componentDto.setReferenceType(AffectedComponentDTO.COMPONENT_TYPE_PROCESSOR);
+            componentDto.setState(processorDto.getState());
+            componentDto.setValidationErrors(processorDto.getValidationErrors());
+        }
         component.setComponent(componentDto);
 
         return component;
@@ -1965,12 +2029,18 @@ public final class DtoFactory {
 
         final PortDTO portDto = portEntity.getComponent();
         final AffectedComponentDTO componentDto = new AffectedComponentDTO();
-        componentDto.setId(portDto.getId());
-        componentDto.setName(portDto.getName());
-        componentDto.setProcessGroupId(portDto.getParentGroupId());
-        componentDto.setReferenceType(referenceType);
-        componentDto.setState(portDto.getState());
-        componentDto.setValidationErrors(portDto.getValidationErrors());
+        if (componentDto == null) {
+            componentDto.setId(portEntity.getId());
+            componentDto.setName(portEntity.getId());
+        } else {
+            componentDto.setId(portDto.getId());
+            componentDto.setName(portDto.getName());
+            componentDto.setProcessGroupId(portDto.getParentGroupId());
+            componentDto.setReferenceType(referenceType);
+            componentDto.setState(portDto.getState());
+            componentDto.setValidationErrors(portDto.getValidationErrors());
+        }
+
         component.setComponent(componentDto);
 
         return component;
@@ -1991,12 +2061,19 @@ public final class DtoFactory {
 
         final ControllerServiceDTO serviceDto = serviceEntity.getComponent();
         final AffectedComponentDTO componentDto = new AffectedComponentDTO();
-        componentDto.setId(serviceDto.getId());
-        componentDto.setName(serviceDto.getName());
-        componentDto.setProcessGroupId(serviceDto.getParentGroupId());
-        componentDto.setReferenceType(AffectedComponentDTO.COMPONENT_TYPE_CONTROLLER_SERVICE);
-        componentDto.setState(serviceDto.getState());
-        componentDto.setValidationErrors(serviceDto.getValidationErrors());
+        if (serviceDto == null) {
+            componentDto.setId(serviceEntity.getId());
+            componentDto.setName(serviceEntity.getId());
+            componentDto.setProcessGroupId(serviceEntity.getParentGroupId());
+        } else {
+            componentDto.setId(serviceDto.getId());
+            componentDto.setName(serviceDto.getName());
+            componentDto.setProcessGroupId(serviceDto.getParentGroupId());
+            componentDto.setReferenceType(AffectedComponentDTO.COMPONENT_TYPE_CONTROLLER_SERVICE);
+            componentDto.setState(serviceDto.getState());
+            componentDto.setValidationErrors(serviceDto.getValidationErrors());
+        }
+
         component.setComponent(componentDto);
 
         return component;
@@ -2120,7 +2197,21 @@ public final class DtoFactory {
         }
 
         final ParameterContext parameterContext = group.getParameterContext();
-        dto.setParameterContextId(parameterContext == null ? null : parameterContext.getIdentifier());
+        if (parameterContext != null) {
+            dto.setParameterContext(entityFactory.createParameterReferenceEntity(createParameterContextReference(parameterContext), createPermissionsDto(parameterContext)));
+        }
+        return dto;
+    }
+
+    public ParameterContextReferenceDTO createParameterContextReference(final ParameterContext parameterContext) {
+        if (parameterContext == null) {
+            return null;
+        }
+
+        final ParameterContextReferenceDTO dto = new ParameterContextReferenceDTO();
+        dto.setId(parameterContext.getIdentifier());
+        dto.setName(parameterContext.getName());
+
         return dto;
     }
 
@@ -2387,9 +2478,10 @@ public final class DtoFactory {
         dto.setVersionedComponentId(group.getVersionedComponentId().orElse(null));
         dto.setVersionControlInformation(createVersionControlInformationDto(group));
 
-        final ParameterContextReferenceDTO parameterContextReference = new ParameterContextReferenceDTO();
-        parameterContextReference.setId(group.getParameterContext() == null ? null : group.getParameterContext().getIdentifier());
-        dto.setParameterContext(parameterContextReference);
+        final ParameterContext parameterContext = group.getParameterContext();
+        if (parameterContext != null) {
+            dto.setParameterContext(entityFactory.createParameterReferenceEntity(createParameterContextReference(parameterContext), createPermissionsDto(parameterContext)));
+        }
 
         final Map<String, String> variables = group.getVariableRegistry().getVariableMap().entrySet().stream()
             .collect(Collectors.toMap(entry -> entry.getKey().getName(), Entry::getValue));
@@ -2421,12 +2513,21 @@ public final class DtoFactory {
     }
 
 
-    public Set<ComponentDifferenceDTO> createComponentDifferenceDtos(final FlowComparison comparison) {
+    public Set<ComponentDifferenceDTO> createComponentDifferenceDtos(final FlowComparison comparison, final FlowManager flowManager) {
         final Map<ComponentDifferenceDTO, List<DifferenceDTO>> differencesByComponent = new HashMap<>();
+
+        final Map<String, VersionedProcessGroup> versionedGroups = flattenProcessGroups(comparison.getFlowA().getContents());
 
         for (final FlowDifference difference : comparison.getDifferences()) {
             // Ignore these as local differences for now because we can't do anything with it
             if (difference.getDifferenceType() == DifferenceType.BUNDLE_CHANGED) {
+                continue;
+            }
+
+            // Ignore differences that are the result of the Versioned Flow not having a Scheduled State and the newer flow being "ENABLED". We do this because
+            // Scheduled State was not always part of the Versioned Flow - it was always assumed to be ENABLED. We don't want flows that were previously stored in this
+            // format to now be considered different than the local flow.
+            if (FlowDifferenceFilters.isScheduledStateNew(difference)) {
                 continue;
             }
 
@@ -2441,6 +2542,16 @@ public final class DtoFactory {
             }
 
             if (FlowDifferenceFilters.isIgnorableVersionedFlowCoordinateChange(difference)) {
+                continue;
+            }
+
+            if (FlowDifferenceFilters.isNewPropertyWithDefaultValue(difference, flowManager)) {
+                continue;
+            }
+
+            final VersionedComponent componentA = difference.getComponentA();
+            final VersionedProcessGroup relevantProcessGroup = componentA == null ? null : versionedGroups.get(componentA.getGroupIdentifier());
+            if (relevantProcessGroup != null && FlowDifferenceFilters.isNewRelationshipAutoTerminatedAndDefaulted(difference, relevantProcessGroup, flowManager)) {
                 continue;
             }
 
@@ -2459,6 +2570,20 @@ public final class DtoFactory {
         }
 
         return differencesByComponent.keySet();
+    }
+
+    private Map<String, VersionedProcessGroup> flattenProcessGroups(final VersionedProcessGroup group) {
+        final Map<String, VersionedProcessGroup> flattened = new HashMap<>();
+        flattenProcessGroups(group, flattened);
+        return flattened;
+    }
+
+    private void flattenProcessGroups(final VersionedProcessGroup group, final Map<String, VersionedProcessGroup> flattened) {
+        flattened.put(group.getIdentifier(), group);
+
+        for (final VersionedProcessGroup child : group.getProcessGroups()) {
+            flattenProcessGroups(child, flattened);
+        }
     }
 
     private ComponentDifferenceDTO createComponentDifference(final FlowDifference difference) {
@@ -2678,7 +2803,26 @@ public final class DtoFactory {
         final AffectedComponentDTO affectedComponent = createAffectedComponentDto(componentNode);
         final PermissionsDTO permissions = createPermissionsDto(componentNode);
         final RevisionDTO revision = createRevisionDTO(revisionManager.getRevision(componentNode.getIdentifier()));
-        return entityFactory.createAffectedComponentEntity(affectedComponent, revision, permissions);
+
+        final ProcessGroupNameDTO groupNameDto = new ProcessGroupNameDTO();
+        groupNameDto.setId(componentNode.getProcessGroupIdentifier());
+        groupNameDto.setName(componentNode.getProcessGroupIdentifier());
+
+        ProcessGroup processGroup = null;
+        if (componentNode instanceof ProcessorNode) {
+            processGroup = ((ProcessorNode) componentNode).getProcessGroup();
+        } else if (componentNode instanceof ControllerServiceNode) {
+            processGroup = ((ControllerServiceNode) componentNode).getProcessGroup();
+        }
+
+        if (processGroup != null) {
+            final boolean authorized = processGroup.isAuthorized(authorizer, RequestAction.READ, NiFiUserUtils.getNiFiUser());
+            if (authorized) {
+                groupNameDto.setName(processGroup.getName());
+            }
+        }
+
+        return entityFactory.createAffectedComponentEntity(affectedComponent, revision, permissions, groupNameDto);
     }
 
     public VariableRegistryDTO createVariableRegistryDto(final ProcessGroup processGroup, final RevisionManager revisionManager) {
@@ -4160,13 +4304,35 @@ public final class DtoFactory {
         return copy;
     }
 
-    public ParameterContextReferenceDTO copy(final ParameterContextReferenceDTO original) {
+    public ParameterContextReferenceEntity copy(final ParameterContextReferenceEntity original) {
         if (original == null) {
             return null;
         }
 
-        final ParameterContextReferenceDTO copy = new ParameterContextReferenceDTO();
+        final ParameterContextReferenceEntity copy = new ParameterContextReferenceEntity();
         copy.setId(original.getId());
+        copy.setPermissions(copy(original.getPermissions()));
+
+        if (original.getComponent() != null) {
+            final ParameterContextReferenceDTO dtoOriginal = original.getComponent();
+
+            final ParameterContextReferenceDTO dtoCopy = new ParameterContextReferenceDTO();
+            dtoCopy.setId(dtoOriginal.getId());
+            dtoCopy.setName(dtoOriginal.getName());
+            copy.setComponent(dtoCopy);
+        }
+
+        return copy;
+    }
+
+    public PermissionsDTO copy(final PermissionsDTO original) {
+        if (original == null) {
+            return null;
+        }
+
+        final PermissionsDTO copy = new PermissionsDTO();
+        copy.setCanRead(original.getCanRead());
+        copy.setCanWrite(original.getCanWrite());
         return copy;
     }
 

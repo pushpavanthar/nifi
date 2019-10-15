@@ -74,6 +74,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 public class AvroTypeUtil {
     private static final Logger logger = LoggerFactory.getLogger(AvroTypeUtil.class);
@@ -877,6 +878,16 @@ public class AvroTypeUtil {
      */
     private static Object convertUnionFieldValue(final Object originalValue, final Schema fieldSchema, final Function<Schema, Object> conversion, final String fieldName) {
         boolean foundNonNull = false;
+
+        Optional<Schema> mostSuitableType = DataTypeUtils.findMostSuitableType(
+                originalValue,
+                fieldSchema.getTypes().stream().filter(schema -> schema.getType() != Type.NULL).collect(Collectors.toList()),
+                subSchema -> AvroTypeUtil.determineDataType(subSchema)
+        );
+        if (mostSuitableType.isPresent()) {
+            return conversion.apply(mostSuitableType.get());
+        }
+
         for (final Schema subSchema : fieldSchema.getTypes()) {
             if (subSchema.getType() == Type.NULL) {
                 continue;
@@ -1012,6 +1023,11 @@ public class AvroTypeUtil {
                 return AvroTypeUtil.convertByteArray(bb.array());
             case FIXED:
                 final GenericFixed fixed = (GenericFixed) value;
+                final LogicalType fixedLogicalType = avroSchema.getLogicalType();
+                if (fixedLogicalType != null && LOGICAL_TYPE_DECIMAL.equals(fixedLogicalType.getName())) {
+                    final ByteBuffer fixedByteBuffer = ByteBuffer.wrap(fixed.bytes());
+                    return new Conversions.DecimalConversion().fromBytes(fixedByteBuffer, avroSchema, fixedLogicalType);
+                }
                 return AvroTypeUtil.convertByteArray(fixed.bytes());
             case ENUM:
                 return value.toString();
